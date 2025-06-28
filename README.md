@@ -178,10 +178,6 @@ CREATE TABLE admin_actions (
 - **Secure API Keys** management
 - **Role-based Access Control** with user roles
 
-## 📱 Screenshots
-
-*[Add screenshots of your app here]*
-
 ## 🤝 Contributing
 
 1. Fork the repository
