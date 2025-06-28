@@ -3,9 +3,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:path/path.dart' as p;
+import '../services/storage_service.dart';
 
 class ProfileScreen extends StatefulWidget {
-  final int userId;
+  final String userId;
   const ProfileScreen({Key? key, required this.userId}) : super(key: key);
 
   @override
@@ -60,25 +61,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> saveProfile() async {
     setState(() => _isLoading = true);
     try {
-      final response = await supabase
-          .from('job_seekers')
-          .update({
-            'experience': experienceController.text.trim(),
-            'education': educationController.text.trim(),
-            'skills': skillsController.text.trim(),
-            'photo_url': photoUrl,
-          })
-          .eq('id', widget.userId);
-      // Jika tidak ada baris yang diupdate, lakukan insert
-      if (response == null || (response is List && response.isEmpty)) {
-        await supabase.from('job_seekers').insert({
-          'id': widget.userId,
-          'experience': experienceController.text.trim(),
-          'education': educationController.text.trim(),
-          'skills': skillsController.text.trim(),
-          'photo_url': photoUrl,
-        });
-      }
+      await supabase.from('job_seekers').upsert({
+        'id': widget.userId,
+        'experience': experienceController.text.trim(),
+        'education': educationController.text.trim(),
+        'skills': skillsController.text.trim(),
+        'photo_url': photoUrl,
+      });
       setState(() => _isLoading = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Profil berhasil diperbarui!')),
@@ -91,37 +80,213 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<void> pickAndUploadPhoto() async {
-    final picker = ImagePicker();
-    final picked = await picker.pickImage(
-      source: ImageSource.gallery,
-      imageQuality: 80,
-    );
-    if (picked == null) return;
-    final file = File(picked.path);
-    final fileName =
-        'profile_${widget.userId}_${DateTime.now().millisecondsSinceEpoch}${p.extension(file.path)}';
-    final storagePath = 'profile_photos/$fileName';
-    final bytes = await file.readAsBytes();
-    final res = await supabase.storage
-        .from('profile')
-        .uploadBinary(
-          storagePath,
-          bytes,
-          fileOptions: const FileOptions(upsert: true),
+  Future<void> _showImageSourceDialog() async {
+    return showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Pilih Sumber Foto'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.camera_alt),
+                title: const Text('Kamera'),
+                onTap: () {
+                  Navigator.pop(context);
+                  pickAndUploadPhoto(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Galeri'),
+                onTap: () {
+                  Navigator.pop(context);
+                  pickAndUploadPhoto(ImageSource.gallery);
+                },
+              ),
+            ],
+          ),
         );
-    final url = supabase.storage.from('profile').getPublicUrl(storagePath);
-    setState(() {
-      photoUrl = url;
-    });
-    // Simpan ke database
-    await supabase
-        .from('job_seekers')
-        .update({'photo_url': url})
-        .eq('id', widget.userId);
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Foto berhasil diupload!')));
+      },
+    );
+  }
+
+  Future<void> pickAndUploadPhoto(ImageSource source) async {
+    try {
+      setState(() => _isLoading = true);
+
+      // Tambah delay kecil untuk mencegah force close
+      await Future.delayed(const Duration(milliseconds: 100));
+
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(
+        source: source,
+        imageQuality: 70, // Kurangi quality untuk file lebih kecil
+        maxWidth: 800, // Kurangi ukuran maksimal
+        maxHeight: 800,
+      );
+
+      if (picked == null) {
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      // Tambah delay sebelum proses file
+      await Future.delayed(const Duration(milliseconds: 200));
+
+      final file = File(picked.path);
+
+      // Validasi file exists
+      if (!await file.exists()) {
+        throw Exception('File tidak ditemukan');
+      }
+
+      // Validasi ukuran file
+      final fileSize = await file.length();
+      if (fileSize > 3 * 1024 * 1024) {
+        // Max 3MB
+        throw Exception('Ukuran file terlalu besar (maksimal 3MB)');
+      }
+
+      // Upload menggunakan StorageService
+      final url = await StorageService.uploadProfilePhoto(file, widget.userId);
+
+      if (!mounted) return;
+
+      setState(() {
+        photoUrl = url;
+        _isLoading = false;
+      });
+
+      // Simpan URL ke database
+      await supabase.from('job_seekers').upsert({
+        'id': widget.userId,
+        'photo_url': url,
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Foto berhasil diupload!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error in pickAndUploadPhoto: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal upload foto: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> deleteProfilePhoto() async {
+    if (photoUrl == null || photoUrl!.isEmpty) return;
+
+    try {
+      setState(() => _isLoading = true);
+
+      // Hapus dari Supabase Storage
+      await StorageService.deleteProfilePhoto(photoUrl!);
+
+      // Update database
+      await supabase
+          .from('job_seekers')
+          .update({'photo_url': null})
+          .eq('id', widget.userId);
+
+      setState(() {
+        photoUrl = null;
+        _isLoading = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Foto berhasil dihapus!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      setState(() => _isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Gagal menghapus foto: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _showPhotoOptionsDialog() async {
+    return showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Opsi Foto'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.camera_alt),
+                title: const Text('Ambil Foto Baru'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _showImageSourceDialog();
+                },
+              ),
+              if (photoUrl != null && photoUrl!.isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.delete, color: Colors.red),
+                  title: const Text(
+                    'Hapus Foto',
+                    style: TextStyle(color: Colors.red),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _showDeleteConfirmationDialog();
+                  },
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showDeleteConfirmationDialog() async {
+    return showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Konfirmasi'),
+          content: const Text('Apakah Anda yakin ingin menghapus foto profil?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Batal'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                deleteProfilePhoto();
+              },
+              child: const Text('Hapus', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -176,22 +341,109 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                 ),
                               ),
                             if (photoUrl != null && photoUrl!.isNotEmpty)
-                              CircleAvatar(
-                                radius: 48,
-                                backgroundImage: NetworkImage(
-                                  Uri.encodeFull(photoUrl!),
+                              GestureDetector(
+                                onTap:
+                                    _isLoading ? null : _showPhotoOptionsDialog,
+                                child: Stack(
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 48,
+                                      backgroundImage: NetworkImage(
+                                        Uri.encodeFull(photoUrl!),
+                                      ),
+                                      onBackgroundImageError: (_, __) {},
+                                    ),
+                                    if (_isLoading)
+                                      Positioned.fill(
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            color: Colors.black.withOpacity(
+                                              0.5,
+                                            ),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const Center(
+                                            child: CircularProgressIndicator(
+                                              color: Colors.white,
+                                              strokeWidth: 2,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    Positioned(
+                                      bottom: 0,
+                                      right: 0,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(4),
+                                        decoration: const BoxDecoration(
+                                          color: Colors.blue,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.edit,
+                                          color: Colors.white,
+                                          size: 16,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                onBackgroundImageError: (_, __) {},
                               )
                             else
-                              const CircleAvatar(
-                                radius: 48,
-                                child: Icon(Icons.person, size: 48),
+                              GestureDetector(
+                                onTap:
+                                    _isLoading ? null : _showImageSourceDialog,
+                                child: Stack(
+                                  children: [
+                                    const CircleAvatar(
+                                      radius: 48,
+                                      child: Icon(Icons.person, size: 48),
+                                    ),
+                                    if (_isLoading)
+                                      Positioned.fill(
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            color: Colors.black.withOpacity(
+                                              0.5,
+                                            ),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: const Center(
+                                            child: CircularProgressIndicator(
+                                              color: Colors.white,
+                                              strokeWidth: 2,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    Positioned(
+                                      bottom: 0,
+                                      right: 0,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(4),
+                                        decoration: const BoxDecoration(
+                                          color: Colors.blue,
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.add_a_photo,
+                                          color: Colors.white,
+                                          size: 16,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                            TextButton.icon(
-                              onPressed: pickAndUploadPhoto,
-                              icon: const Icon(Icons.camera_alt),
-                              label: const Text('Upload Foto'),
+                            const SizedBox(height: 8),
+                            Text(
+                              photoUrl != null && photoUrl!.isNotEmpty
+                                  ? 'Tap foto untuk mengubah'
+                                  : 'Tap untuk menambah foto',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
                             ),
                             const SizedBox(height: 24),
                             TextField(

@@ -6,9 +6,10 @@ import 'package:jobfind/pages/login_screen.dart';
 import 'package:jobfind/pages/application_list_page.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:jobfind/pages/job_detail.dart';
+import 'package:jobfind/pages/user_application_list_page.dart';
 
 class HomeScreen extends StatefulWidget {
-  final int userId;
+  final String userId;
   final String role;
   final String userName;
   final String userEmail;
@@ -33,8 +34,6 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = true;
   String? _userPhotoUrl;
   bool _hasNewApplications = false;
-  bool _hasApplicationUpdates = false;
-  List<Map<String, dynamic>> _applicationStatuses = [];
 
   @override
   void initState() {
@@ -42,7 +41,6 @@ class _HomeScreenState extends State<HomeScreen> {
     fetchJobs();
     _fetchUserPhoto();
     _checkNewApplications();
-    _checkApplicationStatus();
     _searchController.addListener(_onSearch);
   }
 
@@ -99,40 +97,6 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       } catch (e) {
         print('Error checking new applications: $e');
-      }
-    }
-  }
-
-  Future<void> _checkApplicationStatus() async {
-    if (widget.role == 'job_seeker') {
-      try {
-        // Fetch applications with status 'accepted' or 'rejected'
-        final applications = await supabase
-            .from('applications')
-            .select('''
-              id,
-              status,
-              applied_at,
-              jobs!inner(
-                id,
-                title,
-                company
-              )
-            ''')
-            .eq('job_seeker_id', widget.userId)
-            .inFilter('status', ['accepted', 'rejected'])
-            .order('applied_at', ascending: false);
-
-        if (mounted) {
-          setState(() {
-            _applicationStatuses = List<Map<String, dynamic>>.from(
-              applications,
-            );
-            _hasApplicationUpdates = applications.isNotEmpty;
-          });
-        }
-      } catch (e) {
-        print('Error checking application status: $e');
       }
     }
   }
@@ -195,131 +159,6 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _showApplicationStatus() {
-    Navigator.pop(context); // Close drawer
-    showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: Row(
-              children: [
-                const Icon(Icons.notifications, color: Colors.blue),
-                const SizedBox(width: 8),
-                const Text('Status Lamaran'),
-                if (_hasApplicationUpdates)
-                  Container(
-                    margin: const EdgeInsets.only(left: 8),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.red,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Text(
-                      'BARU',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            content: SizedBox(
-              width: double.maxFinite,
-              child:
-                  _applicationStatuses.isEmpty
-                      ? const Center(
-                        child: Text(
-                          'Belum ada update status lamaran',
-                          style: TextStyle(color: Colors.grey),
-                        ),
-                      )
-                      : ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: _applicationStatuses.length,
-                        itemBuilder: (context, index) {
-                          final application = _applicationStatuses[index];
-                          final job =
-                              application['jobs'] as Map<String, dynamic>;
-                          final status = application['status'] as String;
-
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            child: ListTile(
-                              leading: Icon(
-                                status == 'accepted'
-                                    ? Icons.check_circle
-                                    : Icons.cancel,
-                                color:
-                                    status == 'accepted'
-                                        ? Colors.green
-                                        : Colors.red,
-                              ),
-                              title: Text(
-                                job['title'] ?? 'Unknown Position',
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(job['company'] ?? 'Unknown Company'),
-                                  const SizedBox(height: 4),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color:
-                                          status == 'accepted'
-                                              ? Colors.green.withOpacity(0.1)
-                                              : Colors.red.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color:
-                                            status == 'accepted'
-                                                ? Colors.green
-                                                : Colors.red,
-                                        width: 1,
-                                      ),
-                                    ),
-                                    child: Text(
-                                      status == 'accepted'
-                                          ? 'DITERIMA'
-                                          : 'DITOLAK',
-                                      style: TextStyle(
-                                        color:
-                                            status == 'accepted'
-                                                ? Colors.green
-                                                : Colors.red,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Tutup'),
-              ),
-            ],
-          ),
-    );
-  }
-
   void _signOut() async {
     Navigator.pop(context); // Close drawer
     await supabase.auth.signOut();
@@ -330,7 +169,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> applyJob(int jobId) async {
+  Future<void> applyJob(String jobId) async {
     try {
       await supabase.from('applications').insert({
         'job_id': jobId,
@@ -354,7 +193,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> deleteJob(int jobId) async {
+  Future<void> deleteJob(String jobId) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder:
@@ -393,6 +232,25 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         );
       }
+    }
+  }
+
+  Future<void> deleteUserApplication(String appId) async {
+    // Soft delete: update deleted_by_user
+    await supabase
+        .from('applications')
+        .update({'deleted_by_user': true})
+        .eq('id', appId);
+    // Cek apakah deleted_by_admin juga true
+    final app =
+        await supabase
+            .from('applications')
+            .select('deleted_by_admin')
+            .eq('id', appId)
+            .maybeSingle();
+    if (app != null && app['deleted_by_admin'] == true) {
+      // Hapus permanen jika kedua kolom true
+      await supabase.from('applications').delete().eq('id', appId);
     }
   }
 
@@ -485,26 +343,19 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             if (widget.role == 'job_seeker')
               ListTile(
-                leading: Stack(
-                  children: [
-                    const Icon(Icons.notifications_outlined),
-                    if (_hasApplicationUpdates)
-                      Positioned(
-                        right: 0,
-                        top: 0,
-                        child: Container(
-                          width: 12,
-                          height: 12,
-                          decoration: const BoxDecoration(
-                            color: Colors.red,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                title: const Text('Status Lamaran'),
-                onTap: _showApplicationStatus,
+                leading: const Icon(Icons.assignment_outlined),
+                title: const Text('Lamaran Saya'),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder:
+                          (context) =>
+                              UserApplicationListPage(userId: widget.userId),
+                    ),
+                  );
+                },
               ),
             if (widget.role == 'admin')
               ListTile(

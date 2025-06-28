@@ -3,7 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 class JobDetailPage extends StatefulWidget {
   final Map<String, dynamic> job;
-  final int userId;
+  final String userId;
   final String role;
   const JobDetailPage({
     Key? key,
@@ -74,6 +74,16 @@ class _JobDetailPageState extends State<JobDetailPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (job['image_url'] != null &&
+                        job['image_url'].toString().isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: Image.network(
+                          job['image_url'],
+                          height: 180,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
                     Row(
                       children: [
                         CircleAvatar(

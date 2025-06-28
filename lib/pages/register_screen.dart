@@ -56,7 +56,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     });
 
     try {
-      await auth.register(name, email, password, context);
+      await AuthService().register(name, email, password, context);
     } finally {
       setState(() {
         _isLoading = false;

@@ -11,14 +11,11 @@ class AuthService {
     BuildContext context,
   ) async {
     try {
-      final user =
-          await supabase
-              .from('users')
-              .select()
-              .eq('email', email)
-              .eq('password', password)
-              .maybeSingle();
-
+      final response = await supabase.auth.signInWithPassword(
+        email: email,
+        password: password,
+      );
+      final user = response.user;
       if (user == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -31,27 +28,27 @@ class AuthService {
         );
         return;
       }
-
-      // Validasi data user
-      if (user['id'] == null || user['role'] == null) {
+      // Ambil data user dari tabel users
+      final userData =
+          await supabase.from('users').select().eq('id', user.id).maybeSingle();
+      if (userData == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             backgroundColor: Colors.red,
-            content: Text('Data user tidak valid. Silakan hubungi admin.'),
+            content: Text('Data user tidak ditemukan di database.'),
           ),
         );
         return;
       }
-
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(
           builder: (context) {
             return HomeScreen(
-              userId: user['id'],
-              role: user['role'],
-              userName: user['name'] ?? 'No Name',
-              userEmail: user['email'],
+              userId: user.id,
+              role: userData['role'],
+              userName: userData['name'] ?? 'No Name',
+              userEmail: userData['email'],
             );
           },
         ),
@@ -74,44 +71,35 @@ class AuthService {
     BuildContext context,
   ) async {
     try {
-      // Cek apakah email sudah ada
-      final existing =
-          await supabase
-              .from('users')
-              .select()
-              .eq('email', email)
-              .maybeSingle();
-      if (existing != null) {
+      // Register ke Supabase Auth
+      final response = await supabase.auth.signUp(
+        email: email,
+        password: password,
+      );
+      final user = response.user;
+      if (user == null) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             backgroundColor: Colors.red,
-            content: Text(
-              'Email sudah digunakan',
-              style: TextStyle(color: Colors.white),
-            ),
+            content: Text('Gagal registrasi. Coba email lain.'),
           ),
         );
         return;
       }
-      // Insert user baru (selalu job_seeker, admin manual)
-      final userInsert =
-          await supabase
-              .from('users')
-              .insert({
-                'name': name,
-                'email': email,
-                'password': password, // Untuk produksi, hash password!
-                'role': 'job_seeker',
-              })
-              .select()
-              .single();
-      final userId = userInsert['id'];
-      // Insert ke job_seekers
+      // Insert ke tabel users
+      await supabase.from('users').insert({
+        'id': user.id,
+        'name': name,
+        'email': email,
+        'role': 'job_seeker',
+      });
+      // Insert ke tabel job_seekers
       await supabase.from('job_seekers').insert({
-        'id': userId,
+        'id': user.id,
         'experience': '',
         'education': '',
         'skills': '',
+        'photo_url': '',
       });
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(

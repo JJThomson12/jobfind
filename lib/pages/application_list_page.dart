@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class ApplicationListPage extends StatefulWidget {
-  final int adminId;
+  final String adminId;
   const ApplicationListPage({Key? key, required this.adminId})
     : super(key: key);
 
@@ -26,12 +26,13 @@ class _ApplicationListPageState extends State<ApplicationListPage> {
     final data = await supabase
         .from('applications')
         .select('*, jobs(*), job_seekers(*, users(*))')
+        .eq('deleted_by_admin', false)
         .order('id', ascending: false);
     applications = List<Map<String, dynamic>>.from(data);
     setState(() => _isLoading = false);
   }
 
-  Future<void> updateStatus(int appId, String status) async {
+  Future<void> updateStatus(String appId, String status) async {
     await supabase
         .from('applications')
         .update({'status': status})
@@ -39,7 +40,7 @@ class _ApplicationListPageState extends State<ApplicationListPage> {
     fetchApplications();
   }
 
-  Future<void> deleteApplication(int appId) async {
+  Future<void> deleteApplication(String appId) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder:
@@ -61,23 +62,23 @@ class _ApplicationListPageState extends State<ApplicationListPage> {
           ),
     );
     if (confirm == true) {
-      try {
+      // Soft delete: update deleted_by_admin
+      await supabase
+          .from('applications')
+          .update({'deleted_by_admin': true})
+          .eq('id', appId);
+      // Cek apakah deleted_by_user juga true
+      final app =
+          await supabase
+              .from('applications')
+              .select('deleted_by_user')
+              .eq('id', appId)
+              .maybeSingle();
+      if (app != null && app['deleted_by_user'] == true) {
+        // Hapus permanen jika kedua kolom true
         await supabase.from('applications').delete().eq('id', appId);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Lamaran berhasil dihapus!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        fetchApplications();
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Gagal menghapus lamaran: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
       }
+      fetchApplications();
     }
   }
 
@@ -114,7 +115,9 @@ class _ApplicationListPageState extends State<ApplicationListPage> {
                                   color: Colors.redAccent,
                                 ),
                                 tooltip: 'Hapus Lamaran',
-                                onPressed: () => deleteApplication(app['id']),
+                                onPressed:
+                                    () =>
+                                        deleteApplication(app['id'].toString()),
                               )
                               : null,
                       subtitle: Column(
@@ -128,28 +131,34 @@ class _ApplicationListPageState extends State<ApplicationListPage> {
                                 radius: 32,
                               ),
                             ),
-                          Text('Nama: \\${user['name'] ?? '-'}'),
-                          Text('Email: \\${user['email'] ?? '-'}'),
-                          Text('Pengalaman: \\${seeker['experience'] ?? '-'}'),
-                          Text('Pendidikan: \\${seeker['education'] ?? '-'}'),
-                          Text('Keahlian: \\${seeker['skills'] ?? '-'}'),
-                          Text('Status: \\${status}'),
+                          Text('Nama: ${user['name'] ?? '-'}'),
+                          Text('Email: ${user['email'] ?? '-'}'),
+                          Text('Pengalaman: ${seeker['experience'] ?? '-'}'),
+                          Text('Pendidikan: ${seeker['education'] ?? '-'}'),
+                          Text('Keahlian: ${seeker['skills'] ?? '-'}'),
+                          Text('Status: ${status}'),
                           if (status == 'submitted')
                             Row(
                               children: [
                                 ElevatedButton(
                                   onPressed:
-                                      () => updateStatus(app['id'], 'accepted'),
-                                  child: const Text('Accept'),
+                                      () => updateStatus(
+                                        app['id'].toString(),
+                                        'accepted',
+                                      ),
+                                  child: const Text('Terima'),
                                 ),
                                 const SizedBox(width: 8),
                                 ElevatedButton(
                                   onPressed:
-                                      () => updateStatus(app['id'], 'rejected'),
-                                  child: const Text('Reject'),
+                                      () => updateStatus(
+                                        app['id'].toString(),
+                                        'rejected',
+                                      ),
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: Colors.red,
                                   ),
+                                  child: const Text('Tolak'),
                                 ),
                               ],
                             ),
