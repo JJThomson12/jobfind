@@ -59,11 +59,7 @@ flutter pub get
 
 ### 3. Configure Supabase
 1. Create a new Supabase project at [supabase.com](https://supabase.com)
-2. Set up the following database tables:
-   - `users` - User authentication and profile data
-   - `jobs` - Job listings
-   - `applications` - Job applications
-   - `job_seekers` - Job seeker profiles
+2. Set up the following database tables using the SQL commands below
 
 ### 4. Update Configuration
 Update the Supabase configuration in `lib/main.dart`:
@@ -100,38 +96,61 @@ lib/
 
 ## 🔧 Database Schema
 
-### Jobs Table
+### Users Table
 ```sql
-CREATE TABLE jobs (
-  id SERIAL PRIMARY KEY,
-  title VARCHAR NOT NULL,
-  company VARCHAR NOT NULL,
-  description TEXT,
-  requirements TEXT,
-  salary VARCHAR,
-  location VARCHAR,
-  created_at TIMESTAMP DEFAULT NOW()
-);
-```
-
-### Applications Table
-```sql
-CREATE TABLE applications (
-  id SERIAL PRIMARY KEY,
-  job_id INTEGER REFERENCES jobs(id),
-  job_seeker_id INTEGER REFERENCES users(id),
-  status VARCHAR DEFAULT 'submitted',
-  applied_at TIMESTAMP DEFAULT NOW()
+CREATE TABLE users (
+  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  name TEXT NOT NULL,
+  email TEXT UNIQUE NOT NULL,
+  password TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('job_seeker', 'admin')),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 ```
 
 ### Job Seekers Table
 ```sql
 CREATE TABLE job_seekers (
-  id INTEGER PRIMARY KEY REFERENCES users(id),
-  photo_url VARCHAR,
-  bio TEXT,
-  skills TEXT[]
+  id BIGINT PRIMARY KEY REFERENCES users (id),
+  experience TEXT,
+  education TEXT,
+  skills TEXT
+);
+```
+
+### Jobs Table
+```sql
+CREATE TABLE jobs (
+  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  user_id BIGINT REFERENCES users (id),
+  company TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+```
+
+### Applications Table
+```sql
+CREATE TABLE applications (
+  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  job_id BIGINT REFERENCES jobs (id),
+  job_seeker_id BIGINT REFERENCES job_seekers (id),
+  status TEXT NOT NULL CHECK (status IN ('submitted', 'accepted', 'rejected')),
+  applied_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+```
+
+### Admin Actions Table
+```sql
+CREATE TABLE admin_actions (
+  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  admin_id BIGINT REFERENCES users (id),
+  action_type TEXT NOT NULL,
+  action_details TEXT,
+  action_time TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 ```
 
@@ -157,6 +176,7 @@ CREATE TABLE job_seekers (
 - **JWT Authentication** for secure user sessions
 - **Input Validation** to prevent malicious data
 - **Secure API Keys** management
+- **Role-based Access Control** with user roles
 
 ## 📱 Screenshots
 
