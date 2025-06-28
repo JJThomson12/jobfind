@@ -116,22 +116,22 @@ lib/
 
 ## 🔧 Database Schema
 
-### Users Table (UUID-based)
+### Users Table (UUID-based with Supabase Auth)
 ```sql
 CREATE TABLE users (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
   role TEXT NOT NULL CHECK (role IN ('job_seeker', 'admin')),
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 ```
 
 ### Job Seekers Table
 ```sql
 CREATE TABLE job_seekers (
-  id UUID PRIMARY KEY REFERENCES auth.users(id),
+  id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   experience TEXT,
   education TEXT,
   skills TEXT,
@@ -142,27 +142,242 @@ CREATE TABLE job_seekers (
 ### Jobs Table
 ```sql
 CREATE TABLE jobs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES auth.users(id),
+  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  user_id UUID REFERENCES users(id) ON DELETE SET NULL,
   company TEXT NOT NULL,
   title TEXT NOT NULL,
   description TEXT,
   image_url TEXT,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 ```
 
-### Applications Table (with Soft Delete)
+### Applications Table (with Soft Delete and Read Status)
 ```sql
 CREATE TABLE applications (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  job_id UUID REFERENCES jobs(id),
-  job_seeker_id UUID REFERENCES auth.users(id),
+  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  job_id BIGINT REFERENCES jobs(id) ON DELETE CASCADE,
+  job_seeker_id UUID REFERENCES job_seekers(id) ON DELETE CASCADE,
   status TEXT NOT NULL CHECK (status IN ('submitted', 'accepted', 'rejected')),
-  applied_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  applied_at TIMESTAMPTZ DEFAULT NOW(),
+  is_read_admin BOOLEAN DEFAULT FALSE,
+  is_read_user BOOLEAN DEFAULT TRUE,
   deleted_by_admin BOOLEAN DEFAULT FALSE,
   deleted_by_user BOOLEAN DEFAULT FALSE
+);
+```
+
+### Admin Actions Table
+```sql
+CREATE TABLE admin_actions (
+  id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+  admin_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  action_type TEXT NOT NULL,
+  action_details TEXT,
+  action_time TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+## 🗂️ Storage Bucket Setup
+
+### 1. Create Storage Buckets
+In your Supabase dashboard, go to Storage and create the following buckets:
+
+#### Profile Photos Bucket
+- **Bucket Name**: `profile`
+- **Public**: `true`
+- **File Size Limit**: `5MB`
+- **Allowed MIME Types**: `image/*`
+
+#### Company/Job Images Bucket
+- **Bucket Name**: `company`
+- **Public**: `true`
+- **File Size Limit**: `10MB`
+- **Allowed MIME Types**: `image/*`
+
+### 2. Storage Policies
+
+#### Profile Photos Policies
+```sql
+-- Allow authenticated users to upload profile images
+CREATE POLICY "Authenticated users can upload images"
+ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK (bucket_id = 'profile');
+
+-- Allow anyone to view profile images
+CREATE POLICY "Anyone can view images"
+ON storage.objects FOR SELECT
+TO public
+USING (bucket_id = 'profile');
+
+-- Allow authenticated users to update their images
+CREATE POLICY "Authenticated users can update images"
+ON storage.objects FOR UPDATE
+TO authenticated
+USING (bucket_id = 'profile');
+
+-- Allow authenticated users to delete their images
+CREATE POLICY "Authenticated users can delete images"
+ON storage.objects FOR DELETE
+TO authenticated
+USING (bucket_id = 'profile');
+```
+
+#### Company Images Policies
+```sql
+-- Allow admins to upload company photos
+CREATE POLICY "Admin can upload company photos"
+ON storage.objects FOR INSERT
+TO authenticated
+WITH CHECK (bucket_id = 'company');
+
+-- Allow anyone to view company photos
+CREATE POLICY "Anyone can view company photos"
+ON storage.objects FOR SELECT
+TO public
+USING (bucket_id = 'company');
+```
+
+## 🔐 Row Level Security (RLS) Policies
+
+Enable RLS on all tables and add the following policies:
+
+### Users Table Policies
+```sql
+-- Enable RLS
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+
+-- Users can read their own data
+CREATE POLICY "Users can view own profile"
+ON users FOR SELECT
+TO authenticated
+USING (auth.uid() = id);
+
+-- Users can update their own data
+CREATE POLICY "Users can update own profile"
+ON users FOR UPDATE
+TO authenticated
+USING (auth.uid() = id);
+```
+
+### Job Seekers Table Policies
+```sql
+-- Enable RLS
+ALTER TABLE job_seekers ENABLE ROW LEVEL SECURITY;
+
+-- Users can read their own job seeker data
+CREATE POLICY "Users can view own job seeker data"
+ON job_seekers FOR SELECT
+TO authenticated
+USING (auth.uid() = id);
+
+-- Users can update their own job seeker data
+CREATE POLICY "Users can update own job seeker data"
+ON job_seekers FOR UPDATE
+TO authenticated
+USING (auth.uid() = id);
+
+-- Users can insert their own job seeker data
+CREATE POLICY "Users can insert own job seeker data"
+ON job_seekers FOR INSERT
+TO authenticated
+WITH CHECK (auth.uid() = id);
+```
+
+### Jobs Table Policies
+```sql
+-- Enable RLS
+ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
+
+-- Anyone can view jobs
+CREATE POLICY "Anyone can view jobs"
+ON jobs FOR SELECT
+TO public
+USING (true);
+
+-- Only admins can insert jobs
+CREATE POLICY "Only admins can insert jobs"
+ON jobs FOR INSERT
+TO authenticated
+WITH CHECK (
+  EXISTS (
+    SELECT 1 FROM users 
+    WHERE users.id = auth.uid() 
+    AND users.role = 'admin'
+  )
+);
+
+-- Only job creators can update/delete jobs
+CREATE POLICY "Job creators can update jobs"
+ON jobs FOR UPDATE
+TO authenticated
+USING (user_id = auth.uid());
+
+CREATE POLICY "Job creators can delete jobs"
+ON jobs FOR DELETE
+TO authenticated
+USING (user_id = auth.uid());
+```
+
+### Applications Table Policies
+```sql
+-- Enable RLS
+ALTER TABLE applications ENABLE ROW LEVEL SECURITY;
+
+-- Job seekers can view their own applications
+CREATE POLICY "Job seekers can view own applications"
+ON applications FOR SELECT
+TO authenticated
+USING (
+  job_seeker_id IN (
+    SELECT id FROM job_seekers WHERE id = auth.uid()
+  )
+);
+
+-- Job seekers can insert their own applications
+CREATE POLICY "Job seekers can insert applications"
+ON applications FOR INSERT
+TO authenticated
+WITH CHECK (
+  job_seeker_id IN (
+    SELECT id FROM job_seekers WHERE id = auth.uid()
+  )
+);
+
+-- Job seekers can update their own applications (for soft delete)
+CREATE POLICY "Job seekers can update own applications"
+ON applications FOR UPDATE
+TO authenticated
+USING (
+  job_seeker_id IN (
+    SELECT id FROM job_seekers WHERE id = auth.uid()
+  )
+);
+
+-- Admins can view all applications
+CREATE POLICY "Admins can view all applications"
+ON applications FOR SELECT
+TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM users 
+    WHERE users.id = auth.uid() 
+    AND users.role = 'admin'
+  )
+);
+
+-- Admins can update application status
+CREATE POLICY "Admins can update applications"
+ON applications FOR UPDATE
+TO authenticated
+USING (
+  EXISTS (
+    SELECT 1 FROM users 
+    WHERE users.id = auth.uid() 
+    AND users.role = 'admin'
+  )
 );
 ```
 
