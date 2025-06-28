@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:jobfind/pages/pro_screen.dart';
 import 'package:jobfind/pages/splash_screen.dart';
-import 'package:jobfind/pages/pro_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 Future<void> main() async {
@@ -22,7 +20,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Job Finder',
-      home: const ProScreen(),
+      home: const SplashScreen(),
     );
   }
 }

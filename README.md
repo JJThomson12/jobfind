@@ -88,8 +88,7 @@ lib/
 │   ├── job_detail.dart       # Job details view
 │   ├── input_job.dart        # Job posting form
 │   ├── profile_screen.dart   # User profile management
-│   ├── application_list_page.dart # Application management
-│   └── application_color.dart # Color utilities
+│   └── application_list_page.dart # Application management
 └── services/
     └── auth_service.dart     # Authentication service
 ```
