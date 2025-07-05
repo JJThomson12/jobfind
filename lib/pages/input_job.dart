@@ -4,6 +4,8 @@ import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import '../services/storage_service.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:typed_data';
 
 class InputJobPage extends StatefulWidget {
   final String userId;
@@ -49,16 +51,30 @@ class _InputJobPageState extends State<InputJobPage> {
       maxHeight: 800,
     );
     if (picked == null) return;
-    final file = File(picked.path);
-    final url = await StorageService.uploadFile(
-      file,
-      'company',
-      'company_${widget.userId}_${DateTime.now().millisecondsSinceEpoch}${p.extension(file.path)}',
-    );
-    setState(() {
-      _selectedImage = file;
-      _imageUrl = url;
-    });
+    String url;
+    if (kIsWeb) {
+      // Web: upload ke bucket 'company'
+      final bytes = await picked.readAsBytes();
+      final fileName =
+          'company_${widget.userId}_${DateTime.now().millisecondsSinceEpoch}${p.extension(picked.name)}';
+      url = await StorageService.uploadFileWeb(bytes, 'company', fileName);
+      setState(() {
+        _selectedImage = null;
+        _imageUrl = url;
+      });
+    } else {
+      // Mobile: upload dari File
+      final file = File(picked.path);
+      url = await StorageService.uploadFile(
+        file,
+        'company',
+        'company_${widget.userId}_${DateTime.now().millisecondsSinceEpoch}${p.extension(file.path)}',
+      );
+      setState(() {
+        _selectedImage = file;
+        _imageUrl = url;
+      });
+    }
   }
 
   Future<void> addJob() async {

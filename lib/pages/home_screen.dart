@@ -7,6 +7,7 @@ import 'package:jobfind/pages/application_list_page.dart';
 import 'package:shimmer/shimmer.dart';
 import 'package:jobfind/pages/job_detail.dart';
 import 'package:jobfind/pages/user_application_list_page.dart';
+import 'package:jobfind/services/storage_service.dart';
 
 class HomeScreen extends StatefulWidget {
   final String userId;
@@ -193,7 +194,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> deleteJob(String jobId) async {
+  Future<void> deleteJob(String jobId, String? imageUrl) async {
     final confirm = await showDialog<bool>(
       context: context,
       builder:
@@ -216,6 +217,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     if (confirm == true) {
       try {
+        // Hapus gambar di storage jika ada
+        if (imageUrl != null && imageUrl.isNotEmpty) {
+          await StorageService.deleteCompanyImage(imageUrl);
+        }
         await supabase.from('jobs').delete().eq('id', jobId);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -477,6 +482,35 @@ class _HomeScreenState extends State<HomeScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
+                                    if (job['image_url'] != null &&
+                                        job['image_url'].toString().isNotEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.only(
+                                          bottom: 12,
+                                        ),
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                          child: Image.network(
+                                            job['image_url'],
+                                            height: 120,
+                                            width: double.infinity,
+                                            fit: BoxFit.cover,
+                                            errorBuilder:
+                                                (context, error, stackTrace) =>
+                                                    Container(
+                                                      height: 120,
+                                                      color: Colors.grey[200],
+                                                      child: const Icon(
+                                                        Icons.broken_image,
+                                                        size: 48,
+                                                        color: Colors.grey,
+                                                      ),
+                                                    ),
+                                          ),
+                                        ),
+                                      ),
                                     Row(
                                       crossAxisAlignment:
                                           CrossAxisAlignment.start,
@@ -525,7 +559,12 @@ class _HomeScreenState extends State<HomeScreen> {
                                             ),
                                             tooltip: 'Hapus',
                                             onPressed:
-                                                () => deleteJob(job['id']),
+                                                () => deleteJob(
+                                                  job['id'].toString(),
+                                                  job['image_url']
+                                                          ?.toString() ??
+                                                      '',
+                                                ),
                                             padding: EdgeInsets.zero,
                                             constraints: const BoxConstraints(),
                                           ),

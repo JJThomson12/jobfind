@@ -4,6 +4,8 @@ import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:path/path.dart' as p;
 import '../services/storage_service.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:typed_data';
 
 class ProfileScreen extends StatefulWidget {
   final String userId;
@@ -115,56 +117,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> pickAndUploadPhoto(ImageSource source) async {
     try {
       setState(() => _isLoading = true);
-
-      // Tambah delay kecil untuk mencegah force close
-      await Future.delayed(const Duration(milliseconds: 100));
-
       final picker = ImagePicker();
       final picked = await picker.pickImage(
         source: source,
-        imageQuality: 70, // Kurangi quality untuk file lebih kecil
-        maxWidth: 800, // Kurangi ukuran maksimal
+        imageQuality: 70,
+        maxWidth: 800,
         maxHeight: 800,
       );
-
       if (picked == null) {
         setState(() => _isLoading = false);
         return;
       }
-
-      // Tambah delay sebelum proses file
-      await Future.delayed(const Duration(milliseconds: 200));
-
-      final file = File(picked.path);
-
-      // Validasi file exists
-      if (!await file.exists()) {
-        throw Exception('File tidak ditemukan');
+      String url;
+      if (kIsWeb) {
+        // Web: upload dari bytes
+        final bytes = await picked.readAsBytes();
+        final fileName =
+            'profile_${widget.userId}_${DateTime.now().millisecondsSinceEpoch}${p.extension(picked.name)}';
+        url = await StorageService.uploadProfilePhotoWeb(bytes, fileName);
+      } else {
+        // Mobile: upload dari File
+        final file = File(picked.path);
+        url = await StorageService.uploadProfilePhoto(file, widget.userId);
       }
-
-      // Validasi ukuran file
-      final fileSize = await file.length();
-      if (fileSize > 3 * 1024 * 1024) {
-        // Max 3MB
-        throw Exception('Ukuran file terlalu besar (maksimal 3MB)');
-      }
-
-      // Upload menggunakan StorageService
-      final url = await StorageService.uploadProfilePhoto(file, widget.userId);
-
       if (!mounted) return;
-
       setState(() {
         photoUrl = url;
         _isLoading = false;
       });
-
-      // Simpan URL ke database
       await supabase.from('job_seekers').upsert({
         'id': widget.userId,
         'photo_url': url,
       });
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -174,7 +158,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
       }
     } catch (e) {
-      print('Error in pickAndUploadPhoto: $e');
       if (mounted) {
         setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(

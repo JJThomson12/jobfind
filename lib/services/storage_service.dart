@@ -1,6 +1,8 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:path/path.dart' as p;
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 class StorageService {
   static final SupabaseClient _supabase = Supabase.instance.client;
@@ -100,6 +102,71 @@ class StorageService {
       return url;
     } catch (e) {
       throw Exception('Failed to upload file: $e');
+    }
+  }
+
+  /// Upload foto profil ke Supabase Storage (WEB)
+  static Future<String> uploadProfilePhotoWeb(
+    Uint8List bytes,
+    String fileName,
+  ) async {
+    try {
+      final storagePath = 'profile_photos/$fileName';
+      await _supabase.storage
+          .from('profile')
+          .uploadBinary(
+            storagePath,
+            bytes,
+            fileOptions: const FileOptions(
+              upsert: true,
+              contentType: 'image/jpeg',
+            ),
+          );
+      final url = _supabase.storage.from('profile').getPublicUrl(storagePath);
+      return url;
+    } catch (e) {
+      throw Exception('Failed to upload profile photo (web): $e');
+    }
+  }
+
+  /// Upload file umum ke Supabase Storage (WEB)
+  static Future<String> uploadFileWeb(
+    Uint8List bytes,
+    String bucket,
+    String path,
+  ) async {
+    try {
+      await _supabase.storage
+          .from(bucket)
+          .uploadBinary(
+            path,
+            bytes,
+            fileOptions: const FileOptions(
+              upsert: true,
+              contentType: 'image/jpeg',
+            ),
+          );
+      final url = _supabase.storage.from(bucket).getPublicUrl(path);
+      return url;
+    } catch (e) {
+      throw Exception('Failed to upload file (web): $e');
+    }
+  }
+
+  /// Delete gambar dari bucket 'company' berdasarkan imageUrl
+  static Future<void> deleteCompanyImage(String imageUrl) async {
+    try {
+      final uri = Uri.parse(imageUrl);
+      final pathSegments = uri.pathSegments;
+      // Contoh URL: https://xxx.supabase.co/storage/v1/object/public/company/company_123_456.jpg
+      // pathSegments: [storage, v1, object, public, company, company_123_456.jpg]
+      if (pathSegments.length >= 6) {
+        final bucket = pathSegments[4]; // 'company'
+        final fileName = pathSegments[5];
+        await _supabase.storage.from(bucket).remove([fileName]);
+      }
+    } catch (e) {
+      print('Error deleting company image: $e');
     }
   }
 }
